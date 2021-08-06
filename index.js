@@ -6,11 +6,12 @@ const toppings = require("./toppings.json");
 const toppingsMap = require("./toppingsMap.json");
 const pizzaSizes = require("./pizzaSizes.json");
 const provinces = require("./provinces.json");
+const sauces = require("./sauces.json");
 const readline = require("readline");
 const chalk = require("chalk");
 const log = console.log;
 
-// ["-a", "-s", "-t", "-n", "-e", "-p", "-i", "-save"];
+// ["-a", "-si?", "-sa?", "-t", "-n", "-e", "-p", "-i?", "-save?"];
 // -a [address/req] -s [size/default: 12] -t [toppings/default: none] -n [name/req], -e [email/req], -p [phone number/req] -i [instructions/req] -save [save order/default: false]
 
 // Get current time
@@ -31,6 +32,7 @@ var addressProvince = "";
 var addressPostalCode = "";
 
 var selectedInches = 12; // [10, 12, 14, 16] / [small, medium, large, extra large]
+var selectedSauce = ".c-topping-X";
 var crust = `crust_type|${selectedInches}HANDTOSS`;
 var userToppings = [];
 
@@ -39,7 +41,8 @@ var email = "";
 var phoneNumber = "";
 var instructions = "";
 
-var userSizeInput = "";
+var userSizeInput = "m";
+var userSauceInput = "pizza";
 
 var rawArgs = process.argv.slice(2);
 var argMap = {};
@@ -64,15 +67,19 @@ for (var key in argMap) {
       addressProvince = provinces[splitArgs[2].toUpperCase()];
       addressPostalCode = splitArgs[3].toUpperCase();
       break;
-    case (key = "-s"):
-      log(argMap[key].toLowerCase());
+    case (key = "-si"):
       userSizeInput = argMap[key].toLowerCase();
       if (!argMap[key].toLowerCase()) userSizeInput = "m";
       else if (!(userSizeInput in pizzaSizes)) {
         return log("Invalid pizza size entry");
       }
-      log(userSizeInput, selectedInches);
-      selectedInches = pizzaSizes[userSizeInput];
+      break;
+    case (key = "-sa"):
+      userSauceInput = argMap[key].toLowerCase();
+      if (!argMap[key].toLowerCase()) userSauceInput = "pizza";
+      else if (!(userSauceInput in sauces)) {
+        return log("Invalid pizza sauce entry");
+      }
       break;
     case (key = "-t"):
       var splitArgs = argMap[key].split(",");
@@ -99,6 +106,10 @@ for (var key in argMap) {
   }
 }
 
+// Set selected inches/sauce based on user input OR defaults if no user input
+selectedInches = pizzaSizes[userSizeInput];
+selectedSauce = sauces[userSauceInput];
+
 // Check for empty values
 if (!addressStreet || !addressCity || !addressProvince || !addressPostalCode)
   return log("Missing fields from address.");
@@ -115,7 +126,7 @@ if (userToppings.length === 0) return log("Toppings missing.");
 var userToppingsStr = "";
 if (userToppings.length > 0) {
   for (var topping of userToppings) {
-    userToppingsStr += `${topping}, `;
+    if (topping in toppingsMap) userToppingsStr += `${toppingsMap[topping]}, `;
   }
   userToppingsStr = userToppingsStr.substring(0, userToppingsStr.length - 2); // remove extra ', '
 }
@@ -125,9 +136,24 @@ var rl = readline.createInterface({
   output: process.stdout,
 });
 
+log(chalk.blue("\nWelcome to ") + chalk.bold("quick-pizza."));
+log(
+  chalk.red(`
+  ----------------  
+|   *           *  |
+|           *      |
+|      *           |
+|  *            *  |
+|      *    *      |
+|  *               |
+|       *      *   |
+  ----------------  
+`)
+);
+
 // Prompt user for input
 rl.question(
-  chalk.cyan.bold(`Please confirm your entry:
+  chalk.white(`Your order:
 Street Address: ${addressStreet}
 City: ${addressCity}
 Province: ${addressProvince}
@@ -138,7 +164,8 @@ Phone Number: ${phoneNumber}
 Instructions: ${instructions}
 Toppings: ${userToppingsStr ? userToppingsStr : "No toppings selected"}
 Pizza size: ${userSizeInput.toUpperCase()} (${selectedInches}")
-[y/n]: `),
+Pizza sauce: ${userSauceInput}
+Is this correct? [y/n]: `),
   function (input) {
     input = input.toLowerCase();
     if (input !== "n" && input !== "no" && input !== "y" && input && "yes") {
@@ -152,17 +179,21 @@ Pizza size: ${userSizeInput.toUpperCase()} (${selectedInches}")
     }
 
     (async () => {
+      log(chalk.yellow("Starting headless browser"));
+
+      // Launch browser
       const browser = await puppeteer.launch({ headless: false });
       const page = await browser.newPage();
 
+      // Go to order pizza page. This will redirect to a location prompt page.
       await Promise.all([
-        // Go to order pizza page. This will redirect to a location prompt page.
         page.goto(
           "https://www.dominos.ca/en/pages/order/#!/product/S_PIZZA/builder/?skipCustomize=true"
         ),
         page.waitForNavigation({ waitUntil: "networkidle2" }),
       ]);
 
+      log(chalk.yellow("Entering your address details"));
       // Enter location params
       await page.click(".circ-icons__txt");
       await page.select("#Address_Type_Select", addressType);
@@ -179,12 +210,10 @@ Pizza size: ${userSizeInput.toUpperCase()} (${selectedInches}")
       ]);
 
       // wait for page loading animation to finish
-      log("Page load animation delay started.");
       await delay(5000);
-      log("Page load animation delay finished.");
-
       await page.select(".select--future-time", "my-value");
 
+      log(chalk.yellow("Selecting your pizza size"));
       // Set pizza size (Radio select)
       await page.click(`[data-quid="pizza-size-${selectedInches}"]`);
       await page.click(`[for="${crust}"]`);
@@ -193,12 +222,11 @@ Pizza size: ${userSizeInput.toUpperCase()} (${selectedInches}")
       await Promise.all([page.click('[data-quid="pizza-builder-next-btn"]')]);
 
       // Wait for page loading animation to finish
-      log("Page html load delay started.");
       await delay(2000);
-      log("Page html load delay finished.");
 
+      log(chalk.yellow("Selecting your sauce"));
       // Set pizza sauce (Radio select)
-      await page.click(".c-topping-Q");
+      await page.click(selectedSauce);
       // [Pizza Sauce, BBQ Sauce*, Alfredo Sauce*, Hearty Marinara Sauce*, Ranch Dressing*]
       // [.c-topping-X, .c-topping-Q, .c-topping-Xf, .c-topping-Xm, .c-topping-Rd]
 
@@ -207,18 +235,16 @@ Pizza size: ${userSizeInput.toUpperCase()} (${selectedInches}")
 
       // Select no thanks for extra cheese
       await page.waitForSelector('[data-quid="builder-no-step-upsell"]');
-      log("Page load animation delay started.");
       await delay(1000);
-      log("Page load animation delay finished.");
       await Promise.all([page.click('[data-quid="builder-no-step-upsell"]')]);
 
+      log(chalk.yellow("Selecting your toppings"));
       var numberOfToppings = userToppings.length;
       userToppings.forEach((t, index) => {
         setTimeout(async () => {
           var toppingSelector = toppings[toppingsMap[t]];
           if (!toppingSelector) {
             for (var key in toppings) {
-              log(toppingsMap[t], key.substring(0, key.length - 1));
               if (key.substring(0, key.length - 1) === toppingsMap[t]) {
                 toppingSelector = toppings[key];
                 break;
@@ -230,13 +256,10 @@ Pizza size: ${userSizeInput.toUpperCase()} (${selectedInches}")
             }
           }
 
-          log("Attemping to select: " + toppingSelector);
           await page.waitForSelector(`[name="${toppingSelector}"]`);
           await Promise.all([page.click(`[name="${toppingSelector}"]`)]);
 
-          log(index, numberOfToppings);
           if (index === numberOfToppings - 1) {
-            log("Finished selecting toppings");
             await page.click('[data-quid="add-pizzabuilder-button"]');
 
             // await page.waitForSelector(".nav__group--cart");
@@ -252,8 +275,8 @@ Pizza size: ${userSizeInput.toUpperCase()} (${selectedInches}")
             await page.waitForSelector('[data-quid="continue-checkout-btn"]');
             await page.click('[data-quid="continue-checkout-btn"]');
 
+            log(chalk.yellow("Entering your contact information"));
             await delay(1000);
-            log(phoneNumber);
             await page.waitForSelector("#First_Name");
             await page.type("#First_Name", fullName.split(" ")[0]);
             await page.waitForSelector("#Last_Name");
@@ -265,15 +288,37 @@ Pizza size: ${userSizeInput.toUpperCase()} (${selectedInches}")
             await page.evaluate((text) => {
               document.getElementById("Callback_Phone").value = text;
             }, phoneNumber);
+
+            instructions &&
+              log(chalk.yellow("Entering your delivery instructions"));
             await page.waitForSelector("#Delivery_Instructions");
             await page.type("#Delivery_Instructions", instructions);
             await page.waitForSelector('[data-quid="payment-door-credit"]');
             await page.click('[data-quid="payment-door-credit"]');
+            var deliveryTime = await page.$eval(
+              ".order-complete-time__text",
+              (el) => el.innerText
+            );
+
+            log(
+              chalk.blue(
+                "After you place your order, it should be delivered between "
+              ) + chalk.bold(deliveryTime)
+            );
+
+            // Submit order
+            // await page.click('[data-quid="payment-order-now"]');
+
+            // Log success and terminate
+            log(chalk.yellow("Order placed"));
+            log(
+              "Terminating in 10 seconds. Thank you for using the quick-pizza cli."
+            );
+            await delay(10000);
+            process.exit(0);
           }
         }, index * 1000);
       });
-
-      //   await browser.close();
     })();
   }
 );
