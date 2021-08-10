@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 const puppeteer = require("puppeteer");
 const delay = require("./utils/delay");
 const formatTime = require("./utils/formatTime");
@@ -114,7 +115,7 @@ selectedSauce = sauces[userSauceInput];
 if (!addressStreet || !addressCity || !addressProvince || !addressPostalCode)
   return log("Missing fields from address.");
 
-if (!fullName || !email || !phoneNumber || !instructions)
+if (!fullName || !email || !phoneNumber)
   return log("Missing personal information.");
 
 if (phoneNumber.length !== 10 || !/^\d+$/.test(phoneNumber))
@@ -182,7 +183,7 @@ Is this correct? [y/n]: `),
       log(chalk.yellow("Starting headless browser"));
 
       // Launch browser
-      const browser = await puppeteer.launch({ headless: false });
+      const browser = await puppeteer.launch({ headless: true });
       const page = await browser.newPage();
 
       // Go to order pizza page. This will redirect to a location prompt page.
@@ -293,8 +294,11 @@ Is this correct? [y/n]: `),
               log(chalk.yellow("Entering your delivery instructions"));
             await page.waitForSelector("#Delivery_Instructions");
             await page.type("#Delivery_Instructions", instructions);
-            await page.waitForSelector('[data-quid="payment-door-credit"]');
-            await page.click('[data-quid="payment-door-credit"]');
+            // await page.waitForSelector('[data-quid="payment-door-credit"]'); pay with credit/debit upon delivery
+            // await page.click('[data-quid="payment-door-credit"]');
+            await page.waitForSelector('[data-quid="payment-cash"]'); // pay with cash upon delivery
+            await page.click('[data-quid="payment-cash"]');
+
             var deliveryTime = await page.$eval(
               ".order-complete-time__text",
               (el) => el.innerText
@@ -306,7 +310,7 @@ Is this correct? [y/n]: `),
               ) + chalk.bold(deliveryTime)
             );
 
-            // Submit order
+            // [UNCOMMENT THE LINE BELOW TO SUBMIT YOUR ORDER WHEN USING THE CLI]: Submit order
             // await page.click('[data-quid="payment-order-now"]');
 
             // Log success and terminate
